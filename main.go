@@ -1,111 +1,92 @@
 package main
 
 import (
-	"fmt"
+	"encoding/csv"
+	"flag"
 	"math/rand"
+	"os"
+	"strconv"
 	"time"
 
-	"github.com/davecgh/go-spew/spew"
+	"github.com/Sam-Izdat/govote"
+	"github.com/cheggaaa/pb/v3"
 )
 
 // A ballot represents a ranking of candidates A, B, and C
 type Ballot []string
 
-var rankings = []string{"a", "b", "c"}
-var swapRankings = func(i, j int) { rankings[i], rankings[j] = rankings[j], rankings[i] }
-var totalBallots = 10000
+var numCandidates = flag.Int("candidates", 3, "Sets the number of candidates per race.")
+var totalBallots = flag.Int64("total-ballots", int64(10000), "Sets the total number of ballots per election.")
+var totalElections = flag.Int64("total-elections", int64(10000), "Sets the total number of elections to run.")
+var output = flag.String("output", "results.csv", "The output file for election results.")
+var candidates = Ballot{}
 
-func generateBallot() Ballot {
-	rand.Shuffle(len(rankings), swapRankings)
-	ballot := []string{"", "", ""}
-	copy(ballot, rankings)
-	return ballot
-}
-
-func min(a, b, c int) string {
-	if a < b && a < c {
-		return "a"
-	} else if b < a && b < c {
-		return "b"
-	} else if c < a && c < b {
-		return "c"
-	} else {
-		return fmt.Sprintf("tie a: %d b: %d c: %d", a, b, c)
+func chk(err error) {
+	if err != nil {
+		panic(err)
 	}
 }
 
-func count(ballots []Ballot, position int) (int, int, int) {
-	a, b, c := 0, 0, 0
-	for _, ballot := range ballots {
-		if ballot[position] == "a" {
-			a++
-		} else if ballot[position] == "b" {
-			b++
-		} else if ballot[position] == "c" {
-			c++
-		} else {
-			panic("invalid ballot: " + spew.Sprint(ballot))
-		}
+func generateCandidates(num int) {
+	for i := 0; i < num; i++ {
+		candidates = append(candidates, strconv.QuoteRuneToASCII(rune(i+65)))
 	}
-	return a, b, c
 }
 
 func main() {
+	flag.Parse()
+	generateCandidates(*numCandidates)
+
 	rand.Seed(time.Now().UnixNano())
 
-	ballots := []Ballot{}
+	resultsFile, err := os.Create(*output)
+	chk(err)
+	defer resultsFile.Close()
 
-	for i := 0; i < totalBallots; i++ {
-		ballot := generateBallot()
-		ballots = append(ballots, ballot)
-	}
+	resultsData := csv.NewWriter(resultsFile)
+	defer resultsData.Flush()
 
-	fmt.Println(traditional(ballots))
-	fmt.Println(irv(ballots))
-}
+	bar := pb.Start64(*totalElections)
 
-func traditional(ballots []Ballot) string {
-	a, b, c := count(ballots, 0)
+	for j := int64(0); j < *totalElections; j++ {
 
-	if a > b && a > c {
-		return "a"
-	} else if b > a && b > c {
-		return "b"
-	} else if c > a && c > b {
-		return "c"
-	} else {
-		return fmt.Sprintf("tie a: %d b: %d c: %d", a, b, c)
-	}
-}
+		plurality, err := govote.Plurality.New(candidates)
+		chk(err)
+		irv, err := govote.InstantRunoff.New(candidates)
+		chk(err)
+		condorcet, err := govote.Schulze.New(candidates)
+		chk(err)
 
-func irv(ballots []Ballot) string {
-	a, b, c := count(ballots, 0)
-
-	threshold := len(ballots) / 2
-
-	if a > threshold {
-		return "a"
-	} else if b > threshold {
-		return "b"
-	} else if c > threshold {
-		return "c"
-	}
-
-	// there's no winner, let's throw away old votes
-	min := min(a, b, c)
-
-	if len(min) != 1 {
-		fmt.Println(min)
-		return min
-	}
-
-	newBallots := []Ballot{}
-	for _, ballot := range ballots {
-		if ballot[0] == min {
-			ballot = ballot[1:]
+		for i := int64(0); i < *totalBallots; i++ {
+			ballot := generateBallot()
+			plurality.AddBallot(ballot[0])
+			irv.AddBallot(ballot)
+			condorcet.AddBallot(ballot)
 		}
-		newBallots = append(newBallots, ballot)
+
+		_, pluralityRes, err := plurality.Evaluate()
+		chk(err)
+		_, irvRes, err := irv.Evaluate()
+		chk(err)
+		_, condorcetRes, err := condorcet.Evaluate()
+		chk(err)
+
+		pluralityWinner := pluralityRes[0].Name
+		irvWinner := irvRes[len(irvRes)-1][0].Name
+		condorcetResWinner := condorcetRes[0].Name
+
+		resultsData.Write([]string{pluralityWinner, irvWinner, condorcetResWinner})
+
+		bar.Increment()
 	}
 
-	return irv(newBallots)
+	bar.Finish()
+}
+
+func generateBallot() Ballot {
+	ballot := make(Ballot, len(candidates))
+	copy(ballot, candidates)
+	var swapRankings = func(i, j int) { ballot[i], ballot[j] = ballot[j], ballot[i] }
+	rand.Shuffle(len(ballot), swapRankings)
+	return ballot
 }
