@@ -22,6 +22,12 @@ type Election struct {
 	RankSeperator   string
 }
 
+type Candidate struct {
+	Name     string
+	ID       string
+	Rankings []int
+}
+
 func removePrefix(s, prefix string) string {
 	s = strings.TrimSpace(strings.TrimPrefix(s, prefix))
 	s = strings.TrimPrefix(s, "\"")
@@ -112,4 +118,38 @@ func (e *Election) Include(filename string) error {
 	}
 
 	return nil
+}
+
+func (e *Election) Tally() []Candidate {
+	candidates := []Candidate{}
+
+	for candidate, candidateName := range e.Candidates {
+		c := Candidate{}
+		c.Name = candidateName
+		c.ID = candidate
+		c.Rankings = make([]int, len(e.Candidates))
+
+		for _, ballot := range e.Ballots {
+			rank := find(ballot.Rankings, candidate)
+			if rank == -1 {
+				continue
+			}
+			c.Rankings[rank]++
+		}
+
+		candidates = append(candidates, c)
+	}
+
+	return candidates
+}
+
+// Find returns the smallest index i at which x == a[i],
+// or -1 if there is no such index.
+func find(a []string, x string) int {
+	for i, n := range a {
+		if x == n {
+			return i
+		}
+	}
+	return -1
 }

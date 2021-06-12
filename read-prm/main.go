@@ -10,5 +10,5 @@ func main() {
 	if err != nil {
 		panic(err)
 	}
-	spew.Dump(election)
+	spew.Dump(election.Tally())
 }
