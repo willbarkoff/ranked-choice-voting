@@ -1,4 +1,4 @@
-module github.com/willbarkoff/ranked-choice-voting
+module github.com/willbarkoff/ranked-choice-voting/election-simulator
 
 go 1.16
 
